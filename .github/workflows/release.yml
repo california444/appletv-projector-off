@@ -1,0 +1,73 @@
+name: Docker-Image veröffentlichen
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    # Woechentlicher Rebuild, damit Sicherheitsupdates des Basis-Images auch
+    # ohne eigenen Commit ins Image kommen. Zeiten sind UTC. Die krumme
+    # Minute ist Absicht: zur vollen Stunde starten sehr viele Workflows,
+    # GitHub verzoegert oder verwirft Laeufe dann.
+    # Hinweis: In oeffentlichen Repos deaktiviert GitHub geplante Workflows
+    # nach 60 Tagen ohne Repo-Aktivitaet (Mail vorab, Reaktivierung per Klick).
+    - cron: '17 4 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Build und Push (linux/arm64)
+    # Nativer ARM-Runner statt QEMU-Emulation: Zielhost ist ein Raspberry Pi 5.
+    # Fuer oeffentliche Repos kostenlos und um ein Vielfaches schneller.
+    runs-on: ubuntu-24.04-arm
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Docker Buildx einrichten
+        uses: docker/setup-buildx-action@v4
+
+      - name: An der GitHub Container Registry anmelden
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Tags und Labels bestimmen
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ghcr.io/${{ github.repository }}
+          # latest = aktueller main-Stand, sha-... = unveraenderlicher Zeiger
+          # fuer Rollback, Datum = Merker fuer die geplanten Rebuilds.
+          tags: |
+            type=raw,value=latest
+            type=sha,format=long
+            type=raw,value={{date 'YYYYMMDD'}}
+
+      - name: Image bauen und pushen
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/arm64
+          push: true
+          # Ohne pull wuerde der geplante Lauf das alte Basis-Image aus dem
+          # Cache nehmen und waere damit sinnlos.
+          pull: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          # Damit der Daemon beim Start ausgeben kann, aus welchem Commit
+          # das laufende Image gebaut wurde.
+          build-args: |
+            APP_REVISION=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

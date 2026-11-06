@@ -1,0 +1,13 @@
+# Portainer-Stack "atv-projector" (Web-Editor)
+# Die Werte kommen aus stack.env. In Portainer unter "Environment variables"
+# eintragen oder stack.env hochladen. Vorlage: stack.env.example
+services:
+  atv-projector:
+    image: ghcr.io/california444/appletv-projector-off:latest
+    container_name: atv-projector
+    restart: unless-stopped
+    env_file:
+      - stack.env
+    volumes:
+      # pyatv-Pairing (.pyatv.conf) und ADB-Schlüssel (.android/adbkey)
+      - ${DATA_DIR:-./data}:/data
